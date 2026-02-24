@@ -5,43 +5,28 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <style>
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f3f2; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
         
-        .bottom-sheet {
-            position: fixed; bottom: 0; left: 0; right: 0;
-            background: white; border-radius: 20px 20px 0 0;
-            padding: 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-            z-index: 1000;
-        }
-        
-        /* Поля ввода адреса как в Яндексе */
+        .bottom-sheet { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 20px 20px 0 0; padding: 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); z-index: 1000; }
         .input-group { margin-bottom: 12px; position: relative; }
         .input-icon { position: absolute; left: 12px; top: 12px; font-size: 16px; }
-        input {
-            width: 100%; box-sizing: border-box; background: #f5f5f5; border: none;
-            padding: 14px 14px 14px 40px; border-radius: 12px; font-size: 16px; font-weight: 500;
-            outline: none;
-        }
+        input { width: 100%; box-sizing: border-box; background: #f5f5f5; border: none; padding: 14px 14px 14px 40px; border-radius: 12px; font-size: 16px; font-weight: 500; outline: none; }
         input:focus { background: #ebebeb; }
-        
         .price-row { display: flex; justify-content: space-between; align-items: center; margin: 15px 0; font-size: 18px; font-weight: bold; }
-        
-        .main-btn {
-            width: 100%; background: #ffde00; color: black; border: none;
-            padding: 16px; border-radius: 12px; font-weight: bold; font-size: 16px;
-            cursor: pointer;
-        }
+        .main-btn { width: 100%; background: #ffde00; color: black; border: none; padding: 16px; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer; }
         .main-btn:disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
         
         .custom-icon { background: none; border: none; }
         .marker-a { background: #000; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);}
         .marker-b { background: #ffde00; color: black; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);}
-        
         .reset-btn { position: fixed; top: 15px; right: 15px; background: white; width: 40px; height: 40px; border-radius: 20px; display: flex; align-items: center; justify-content: center; z-index: 1000; box-shadow: 0 2px 5px rgba(0,0,0,0.2); font-size: 20px; cursor: pointer; display: none;}
         .reset-btn.active { display: flex; }
     </style>
@@ -54,12 +39,11 @@
 <div class="bottom-sheet" id="sheet">
     <div class="input-group">
         <div class="input-icon">📍</div>
-        <!-- onchange срабатывает, когда нажал Enter или кликнул мимо -->
-        <input type="text" id="input-from" placeholder="Откуда поедем?" onchange="searchAddress(this.value, true)">
+        <input type="text" id="input-from" placeholder="Откуда поедем? (Город, Улица)" onchange="searchAddress(this.value, true)">
     </div>
     <div class="input-group">
         <div class="input-icon">🏁</div>
-        <input type="text" id="input-to" placeholder="Куда поедем?" onchange="searchAddress(this.value, false)">
+        <input type="text" id="input-to" placeholder="Куда поедем? (Город, Улица)" onchange="searchAddress(this.value, false)">
     </div>
     <div class="price-row">
         <span>💰 Стоимость:</span>
@@ -70,8 +54,7 @@
 
 <script>
     const tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.ready();
+    tg.expand(); tg.ready();
 
     const map = L.map('map', {zoomControl: false}).setView([58.6035, 49.6680], 13);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
@@ -81,26 +64,28 @@
     const iconA = L.divIcon({className: 'custom-icon', html: '<div class="marker-a">A</div>', iconSize: [30, 30], iconAnchor: [15, 15]});
     const iconB = L.divIcon({className: 'custom-icon', html: '<div class="marker-b">B</div>', iconSize: [30, 30], iconAnchor: [15, 15]});
 
-    // Умный поиск короткого адреса
+    // Поиск через лупу на карте (добавил установку маркера!)
+    L.Control.geocoder({ defaultMarkGeocode: false, placeholder: "Поиск..." }).on('markgeocode', function(e) {
+        let latlng = e.geocode.center;
+        map.setView(latlng, 16);
+        if (!markerA) placeMarker(latlng, true);
+        else if (!markerB) placeMarker(latlng, false);
+    }).addTo(map);
+
     async function getAddress(lat, lon) {
         try {
             let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=ru`);
             let data = await res.json();
             if(data.address) {
-                let street = data.address.road || data.address.pedestrian || data.address.suburb;
-                if (street) {
-                    return street + (data.address.house_number ? ", " + data.address.house_number : "");
-                }
+                let street = data.address.road || data.address.pedestrian || data.address.suburb || "Точка на карте";
+                return street + (data.address.house_number ? ", " + data.address.house_number : "");
             }
-            // Если улицы нет, берем первое короткое название из длинного описания
-            if (data.display_name) {
-                return data.display_name.split(',')[0];
-            }
-            return "Координаты";
-        } catch(e) { return "Ошибка сети"; }
+            if (data.display_name) return data.display_name.split(',')[0];
+            return "Точка на карте";
+        } catch(e) { return "Координаты"; }
     }
 
-    // Если ввели текст ручками
+    // ИСПРАВЛЕННЫЙ ПОИСК АДРЕСА: теперь ставит точку!
     async function searchAddress(query, isPointA) {
         if(!query) return;
         try {
@@ -108,37 +93,31 @@
             let data = await res.json();
             if(data.length > 0) {
                 let latlng = L.latLng(data[0].lat, data[0].lon);
-                map.setView(latlng, 15);
-                placeMarker(latlng, isPointA, query); // Ставим маркер
+                map.setView(latlng, 16);
+                placeMarker(latlng, isPointA, query);
+            } else {
+                tg.showAlert("Адрес не найден. Попробуйте написать иначе или просто кликните на карту!");
             }
         } catch(e) {}
     }
 
     async function placeMarker(latlng, isPointA, forceName = null) {
         document.getElementById('reset-btn').classList.add('active');
-        
         let addr = forceName || await getAddress(latlng.lat, latlng.lng);
         
         if (isPointA) {
             if(!markerA) { 
                 markerA = L.marker(latlng, {icon: iconA, draggable: true}).addTo(map); 
                 markerA.on('dragend', function() { placeMarker(markerA.getLatLng(), true); });
-            }
-            else markerA.setLatLng(latlng);
-            
-            orderData.from = addr;
-            document.getElementById('input-from').value = addr;
+            } else markerA.setLatLng(latlng);
+            orderData.from = addr; document.getElementById('input-from').value = addr;
         } else {
             if(!markerB) { 
                 markerB = L.marker(latlng, {icon: iconB, draggable: true}).addTo(map); 
                 markerB.on('dragend', function() { placeMarker(markerB.getLatLng(), false); });
-            }
-            else markerB.setLatLng(latlng);
-            
-            orderData.to = addr;
-            document.getElementById('input-to').value = addr;
+            } else markerB.setLatLng(latlng);
+            orderData.to = addr; document.getElementById('input-to').value = addr;
         }
-
         if (markerA && markerB) await drawRouteAndCalculate(markerA.getLatLng(), markerB.getLatLng());
     }
 
@@ -154,11 +133,9 @@
         markerA = markerB = routeLine = null;
         orderData = { from: "", to: "", price: 0, distance: 0 };
         document.getElementById('reset-btn').classList.remove('active');
-        document.getElementById('input-from').value = "";
-        document.getElementById('input-to').value = "";
+        document.getElementById('input-from').value = ""; document.getElementById('input-to').value = "";
         document.getElementById('price-val').innerText = "~ руб.";
-        document.getElementById('order-btn').innerText = "Выберите маршрут";
-        document.getElementById('order-btn').disabled = true;
+        document.getElementById('order-btn').innerText = "Выберите маршрут"; document.getElementById('order-btn').disabled = true;
     }
 
     async function drawRouteAndCalculate(start, end) {
@@ -171,15 +148,14 @@
                 let route = data.routes[0];
                 let distanceKm = (route.distance / 1000).toFixed(1);
                 orderData.distance = distanceKm;
-                orderData.price = Math.round(100 + (distanceKm * 20));
+                orderData.price = Math.round(100 + (distanceKm * 20)); // Формула: 100р подача + 20р/км
                 
                 document.getElementById('price-val').innerText = orderData.price + " руб.";
                 routeLine = L.geoJSON(route.geometry, { style: {color: '#007aff', weight: 5, opacity: 0.8} }).addTo(map);
-                
-                document.getElementById('order-btn').innerText = "Заказать такси";
-                document.getElementById('order-btn').disabled = false;
+                map.fitBounds(routeLine.getBounds(), {padding: [30, 30]});
+                document.getElementById('order-btn').innerText = "Заказать такси"; document.getElementById('order-btn').disabled = false;
             }
-        } catch(e) {}
+        } catch(e) { document.getElementById('price-val').innerText = "Ошибка расчета"; }
     }
 
     function sendOrder() {
