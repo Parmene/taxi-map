@@ -1,79 +1,154 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Выбор маршрута</title>
+    <title>Заказ Такси</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <!-- Подключаем стили карт Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Подключаем скрипт Телеграма -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
+    
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; }
-        #map { height: 100vh; width: 100vw; }
-        .order-panel {
-            position: fixed; bottom: 20px; left: 10px; right: 10px;
-            background: white; padding: 15px; border-radius: 15px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.2); z-index: 1000;
-            display: none; /* Скрыта, пока не выбраны точки */
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f3f2; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        
+        /* Дизайн в стиле Яндекса (шторка снизу) */
+        .bottom-sheet {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: white; border-radius: 20px 20px 0 0;
+            padding: 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            z-index: 1000; transform: translateY(100%); transition: transform 0.3s ease-out;
         }
+        .bottom-sheet.active { transform: translateY(0); }
+        
+        .address-box { margin-bottom: 15px; }
+        .address-title { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; font-weight: bold; }
+        .address-value { font-size: 16px; font-weight: 500; color: #000; padding: 10px; background: #f5f5f5; border-radius: 10px; }
+        
+        .price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 18px; font-weight: bold; }
+        
         button {
-            width: 100%; background: #f7d51b; border: none;
-            padding: 12px; border-radius: 10px; font-weight: bold; font-size: 16px;
+            width: 100%; background: #ffde00; color: black; border: none;
+            padding: 16px; border-radius: 12px; font-weight: bold; font-size: 16px;
+            cursor: pointer; transition: background 0.2s;
         }
+        button:active { background: #e6c800; }
+        
+        /* Стили маркеров */
+        .custom-icon { background: none; border: none; }
+        .marker-a { background: #000; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);}
+        .marker-b { background: #ffde00; color: black; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);}
     </style>
 </head>
 <body>
 
 <div id="map"></div>
 
-<div class="order-panel" id="panel">
-    <div id="info" style="margin-bottom: 10px; font-size: 14px;"></div>
-    <button onclick="sendDataToBot()">🚕 Подтвердить заказ</button>
+<div class="bottom-sheet" id="sheet">
+    <div class="address-box">
+        <div class="address-title">📍 Откуда забрать</div>
+        <div class="address-value" id="addr-from">Определяем...</div>
+    </div>
+    <div class="address-box">
+        <div class="address-title">🏁 Куда поедем</div>
+        <div class="address-value" id="addr-to">Определяем...</div>
+    </div>
+    <div class="price-row">
+        <span>💰 Стоимость:</span>
+        <span id="price-val">~ руб.</span>
+    </div>
+    <button onclick="sendOrder()">Заказать такси</button>
 </div>
 
 <script>
     const tg = window.Telegram.WebApp;
-    tg.expand(); // Развернуть на весь экран
+    tg.expand(); // Разворачиваем на весь экран
+    tg.ready();
 
-    // Инициализируем карту (центр - Киров)
-    const map = L.map('map').setView([58.6035, 49.6680], 13);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
+    // Красивый стиль карты (Светлый современный дизайн)
+    const map = L.map('map', {zoomControl: false}).setView([58.6035, 49.6680], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '© OpenStreetMap © CartoDB',
+        maxZoom: 19
     }).addTo(map);
 
-    let markerA, markerB;
-    let coordsA, coordsB;
+    let markerA = null, markerB = null;
+    let routeLine = null;
+    let orderData = { from: "", to: "", price: 0, distance: 0 };
 
-    // Клик по карте
-    map.on('click', function(e) {
+    const iconA = L.divIcon({className: 'custom-icon', html: '<div class="marker-a">A</div>', iconSize: [30, 30], iconAnchor: [15, 15]});
+    const iconB = L.divIcon({className: 'custom-icon', html: '<div class="marker-b">B</div>', iconSize: [30, 30], iconAnchor: [15, 15]});
+
+    map.on('click', async function(e) {
         if (!markerA) {
-            markerA = L.marker(e.latlng, {draggable: true}).addTo(map).bindPopup("Откуда").openPopup();
-            coordsA = e.latlng;
+            markerA = L.marker(e.latlng, {icon: iconA}).addTo(map);
+            let addr = await getAddress(e.latlng.lat, e.latlng.lng);
+            orderData.from = addr;
+            document.getElementById('addr-from').innerText = addr;
         } else if (!markerB) {
-            markerB = L.marker(e.latlng, {draggable: true}).addTo(map).bindPopup("Куда").openPopup();
-            coordsB = e.latlng;
-            showPanel();
+            markerB = L.marker(e.latlng, {icon: iconB}).addTo(map);
+            let addr = await getAddress(e.latlng.lat, e.latlng.lng);
+            orderData.to = addr;
+            document.getElementById('addr-to').innerText = addr;
+            
+            // Как только есть 2 точки - строим маршрут и показываем меню
+            await drawRouteAndCalculate(markerA.getLatLng(), markerB.getLatLng());
+            document.getElementById('sheet').classList.add('active');
+        } else {
+            // Сброс, если кликнули 3-й раз
+            map.removeLayer(markerA);
+            map.removeLayer(markerB);
+            if(routeLine) map.removeLayer(routeLine);
+            markerA = markerB = routeLine = null;
+            document.getElementById('sheet').classList.remove('active');
         }
     });
 
-    function showPanel() {
-        document.getElementById('panel').style.display = 'block';
-        document.getElementById('info').innerHTML = "Маршрут построен. Расстояние будет рассчитано автоматически.";
+    // Функция перевода координат в улицу (Обратное геокодирование)
+    async function getAddress(lat, lon) {
+        try {
+            let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+            let data = await res.json();
+            if(data.address) {
+                let street = data.address.road || "Улица неизвестна";
+                let house = data.address.house_number ? ", " + data.address.house_number : "";
+                return street + house;
+            }
+            return "Адрес не определен";
+        } catch(e) { return "Ошибка сети"; }
     }
 
-    function sendDataToBot() {
-        const data = {
-            from: coordsA.lat + "," + coordsA.lng,
-            to: coordsB.lat + "," + coordsB.lng,
-            price: 250 // Позже добавим расчет
-        };
-        // Отправляем данные боту и закрываем окно
-        tg.sendData(JSON.stringify(data));
-        tg.close();
+    // Строим маршрут по дорогам и считаем цену
+    async function drawRouteAndCalculate(start, end) {
+        try {
+            // Обращаемся к открытому серверу маршрутов OSRM
+            let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`);
+            let data = await res.json();
+            
+            if(data.routes && data.routes.length > 0) {
+                let route = data.routes[0];
+                let distanceKm = (route.distance / 1000).toFixed(1); // Дистанция в км
+                orderData.distance = distanceKm;
+                
+                // Формула цены: 100 руб посадка + 20 руб за каждый км
+                let calculatedPrice = Math.round(100 + (distanceKm * 20));
+                orderData.price = calculatedPrice;
+                document.getElementById('price-val').innerText = calculatedPrice + " руб.";
+
+                // Рисуем синюю линию маршрута на карте
+                routeLine = L.geoJSON(route.geometry, { style: {color: '#007aff', weight: 5, opacity: 0.8} }).addTo(map);
+                map.fitBounds(routeLine.getBounds(), {padding: [50, 50]}); // Центрируем камеру
+            }
+        } catch(e) {
+            console.log("Ошибка маршрута");
+        }
+    }
+
+    function sendOrder() {
+        if(orderData.from && orderData.to) {
+            tg.sendData(JSON.stringify(orderData));
+            tg.close();
+        }
     }
 </script>
 </body>
