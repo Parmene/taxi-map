@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Выбор маршрута</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- Подключаем стили карт Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Подключаем скрипт Телеграма -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { height: 100vh; width: 100vw; }
+        .order-panel {
+            position: fixed; bottom: 20px; left: 10px; right: 10px;
+            background: white; padding: 15px; border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.2); z-index: 1000;
+            display: none; /* Скрыта, пока не выбраны точки */
+        }
+        button {
+            width: 100%; background: #f7d51b; border: none;
+            padding: 12px; border-radius: 10px; font-weight: bold; font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="order-panel" id="panel">
+    <div id="info" style="margin-bottom: 10px; font-size: 14px;"></div>
+    <button onclick="sendDataToBot()">🚕 Подтвердить заказ</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand(); // Развернуть на весь экран
+
+    // Инициализируем карту (центр - Киров)
+    const map = L.map('map').setView([58.6035, 49.6680], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let markerA, markerB;
+    let coordsA, coordsB;
+
+    // Клик по карте
+    map.on('click', function(e) {
+        if (!markerA) {
+            markerA = L.marker(e.latlng, {draggable: true}).addTo(map).bindPopup("Откуда").openPopup();
+            coordsA = e.latlng;
+        } else if (!markerB) {
+            markerB = L.marker(e.latlng, {draggable: true}).addTo(map).bindPopup("Куда").openPopup();
+            coordsB = e.latlng;
+            showPanel();
+        }
+    });
+
+    function showPanel() {
+        document.getElementById('panel').style.display = 'block';
+        document.getElementById('info').innerHTML = "Маршрут построен. Расстояние будет рассчитано автоматически.";
+    }
+
+    function sendDataToBot() {
+        const data = {
+            from: coordsA.lat + "," + coordsA.lng,
+            to: coordsB.lat + "," + coordsB.lng,
+            price: 250 // Позже добавим расчет
+        };
+        // Отправляем данные боту и закрываем окно
+        tg.sendData(JSON.stringify(data));
+        tg.close();
+    }
+</script>
+</body>
+</html>
