@@ -1,27 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Маршрут заказа</title>
+    <title>Навигатор Водителя</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    
     <style>
-        body { margin: 0; padding: 0; font-family: -apple-system, sans-serif; background: #f3f3f2; overflow: hidden;}
+        body { margin: 0; padding: 0; font-family: -apple-system, sans-serif; background: #f3f3f2;}
         #map { height: 100vh; width: 100vw; z-index: 1; }
-        
         .bottom-sheet { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 20px 20px 0 0; padding: 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); z-index: 1000; }
         .address-box { margin-bottom: 12px; font-size: 16px; font-weight: 500; background: #f5f5f5; padding: 12px; border-radius: 10px;}
         .title { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 4px;}
-        
-        /* Кнопка меняет цвет в зависимости от статуса */
-        .main-btn { width: 100%; color: white; border: none; padding: 16px; border-radius: 12px; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; transition: 0.3s;}
-        .btn-arrive { background: #007aff; }
-        .btn-start { background: #ffcc00; color: black;}
-        .btn-finish { background: #34c759; }
-        
+        .main-btn { width: 100%; background: #000; color: white; border: none; padding: 16px; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer; }
         .custom-icon { background: none; border: none; }
         .marker-a { background: #000; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white;}
         .marker-b { background: #ffde00; color: black; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white;}
@@ -32,59 +24,23 @@
 <div id="map"></div>
 
 <div class="bottom-sheet" id="sheet">
-    <div class="title">📍 Откуда:</div>
+    <div class="title">📍 Откуда забрать:</div>
     <div class="address-box" id="addr-from">Загрузка...</div>
-    
-    <div class="title">🏁 Куда:</div>
+    <div class="title">🏁 Куда отвезти:</div>
     <div class="address-box" id="addr-to">Загрузка...</div>
-    
-    <!-- Интерактивная кнопка управления поездкой -->
-    <button class="main-btn btn-arrive" id="action-btn" onclick="nextStatus()">📍 Я на месте</button>
+    <button class="main-btn" onclick="tg.close()">Свернуть карту</button>
 </div>
 
 <script>
-    const tg = window.Telegram.WebApp;
-    tg.expand(); tg.ready();
-
-    // Получаем данные заказа из ссылки, которую формирует Питон
+    const tg = window.Telegram.WebApp; tg.expand(); tg.ready();
     const urlParams = new URLSearchParams(window.location.search);
-    const orderId = urlParams.get('id');
-    const passTgId = urlParams.get('pass_id');
     const latA = urlParams.get('latA'), lonA = urlParams.get('lonA');
     const latB = urlParams.get('latB'), lonB = urlParams.get('lonB');
     const textFrom = decodeURIComponent(urlParams.get('addrA'));
     const textTo = decodeURIComponent(urlParams.get('addrB'));
 
-    document.getElementById('addr-from').innerText = textFrom || "Координаты А";
-    document.getElementById('addr-to').innerText = textTo || "Координаты Б";
-
-    // Управление статусами прямо в карте
-    let currentStatus = 'arriving'; // arriving -> waiting -> in_trip -> finished
-
-    function nextStatus() {
-        let btn = document.getElementById('action-btn');
-        let signalData = { type: "driver_action", order_id: orderId, pass_id: passTgId, action: "" };
-
-        if (currentStatus === 'arriving') {
-            signalData.action = "arrived"; // Сигнал боту: "Я приехал"
-            currentStatus = 'waiting';
-            btn.className = "main-btn btn-start";
-            btn.innerText = "🚙 Начать поездку";
-            tg.sendData(JSON.stringify(signalData)); // Отправляем сигнал боту не закрывая карту! (сработает только в новой версии TG API, если не сработает - придется закрывать)
-            
-        } else if (currentStatus === 'waiting') {
-            signalData.action = "started"; // Сигнал боту: "Поехали"
-            currentStatus = 'in_trip';
-            btn.className = "main-btn btn-finish";
-            btn.innerText = "🏁 Завершить поездку";
-            tg.sendData(JSON.stringify(signalData));
-            
-        } else if (currentStatus === 'in_trip') {
-            signalData.action = "finished"; // Сигнал боту: "Завершил"
-            tg.sendData(JSON.stringify(signalData));
-            tg.close(); // На финише закрываем карту
-        }
-    }
+    document.getElementById('addr-from').innerText = textFrom;
+    document.getElementById('addr-to').innerText = textTo;
 
     const map = L.map('map', {zoomControl: false}).setView([58.6035, 49.6680], 13);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
@@ -93,13 +49,12 @@
         L.marker([latA, lonA], {icon: L.divIcon({className: 'custom-icon', html: '<div class="marker-a">A</div>', iconSize: [30, 30]})}).addTo(map);
         L.marker([latB, lonB], {icon: L.divIcon({className: 'custom-icon', html: '<div class="marker-b">B</div>', iconSize: [30, 30]})}).addTo(map);
         
-        // Рисуем маршрут
         fetch(`https://router.project-osrm.org/route/v1/driving/${lonA},${latA};${lonB},${latB}?overview=full&geometries=geojson`)
         .then(res => res.json())
         .then(data => {
             if(data.routes && data.routes.length > 0) {
                 let routeLine = L.geoJSON(data.routes[0].geometry, { style: {color: '#007aff', weight: 5, opacity: 0.8} }).addTo(map);
-                map.fitBounds(routeLine.getBounds(), {padding: [30, 30]});
+                map.fitBounds(routeLine.getBounds(), {padding: [50, 50]});
             }
         });
     }
