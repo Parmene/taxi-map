@@ -39,7 +39,10 @@
         <div class="input-icon">🏁</div>
         <input type="text" id="input-to" placeholder="Куда поедем? (Город, Улица)" onchange="searchAddress(this.value, false)">
     </div>
-    <div class="price-row"><span>💰 Стоимость:</span><span id="price-val">~ руб.</span></div>
+    <div class="price-row">
+        <span>💰 Стоимость:</span>
+        <span id="price-val" style="text-align: right;">~ руб.</span>
+    </div>
     <button class="main-btn" id="order-btn" onclick="sendOrder()" disabled>Выберите маршрут</button>
 </div>
 
@@ -49,7 +52,6 @@
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
 
     let markerA = null, markerB = null, routeLine = null;
-    // ВАЖНО: Добавили пустые координаты в начальный объект
     let orderData = { from: "", to: "", price: 0, distance: 0, latA: 0, lonA: 0, latB: 0, lonB: 0 };
     
     const iconA = L.divIcon({className: 'custom-icon', html: '<div class="marker-a">A</div>', iconSize: [30, 30], iconAnchor: [15, 15]});
@@ -59,6 +61,19 @@
         let latlng = e.geocode.center; map.setView(latlng, 16);
         if (!markerA) placeMarker(latlng, true); else if (!markerB) placeMarker(latlng, false);
     }).addTo(map);
+
+    // Функция проверки погоды (бесплатно, без ключей)
+    async function getWeatherMultiplier() {
+        try {
+            let res = await fetch("https://wttr.in/Kirov?format=j1");
+            let data = await res.json();
+            let cond = data.current_condition[0].weatherDesc[0].value.toLowerCase();
+            if (cond.includes("rain") || cond.includes("snow") || cond.includes("shower") || cond.includes("дождь") || cond.includes("снег")) {
+                return 1.2; // +20% если плохая погода
+            }
+            return 1.0;
+        } catch(e) { return 1.0; }
+    }
 
     async function getAddress(lat, lon) {
         try {
@@ -89,12 +104,12 @@
             if(!markerA) { markerA = L.marker(latlng, {icon: iconA, draggable: true}).addTo(map); markerA.on('dragend', function() { placeMarker(markerA.getLatLng(), true); }); }
             else markerA.setLatLng(latlng);
             orderData.from = addr; document.getElementById('input-from').value = addr;
-            orderData.latA = latlng.lat; orderData.lonA = latlng.lng; // СОХРАНЯЕМ КООРДИНАТЫ!
+            orderData.latA = latlng.lat; orderData.lonA = latlng.lng; 
         } else {
             if(!markerB) { markerB = L.marker(latlng, {icon: iconB, draggable: true}).addTo(map); markerB.on('dragend', function() { placeMarker(markerB.getLatLng(), false); }); }
             else markerB.setLatLng(latlng);
             orderData.to = addr; document.getElementById('input-to').value = addr;
-            orderData.latB = latlng.lat; orderData.lonB = latlng.lng; // СОХРАНЯЕМ КООРДИНАТЫ!
+            orderData.latB = latlng.lat; orderData.lonB = latlng.lng; 
         }
         if (markerA && markerB) await drawRouteAndCalculate(markerA.getLatLng(), markerB.getLatLng());
     }
@@ -109,19 +124,31 @@
     }
 
     async function drawRouteAndCalculate(start, end) {
-        if(routeLine) map.removeLayer(routeLine); document.getElementById('price-val').innerText = "Считаем...";
+        if(routeLine) map.removeLayer(routeLine); 
+        document.getElementById('price-val').innerText = "Считаем...";
         try {
             let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`);
             let data = await res.json();
             if(data.routes && data.routes.length > 0) {
                 let route = data.routes[0];
-                let distanceKm = (route.distance / 1000).toFixed(1);
+                let distanceKm = parseFloat((route.distance / 1000).toFixed(1));
                 orderData.distance = distanceKm;
                 
-                // НОВАЯ ЭКОНОМИКА: 90 рублей посадка + 20 рублей за каждый километр
-                orderData.price = Math.round(90 + (distanceKm * 20)); 
+                // РАСЧЕТ ЦЕНЫ (По новой формуле)
+                let weatherMult = await getWeatherMultiplier(); // 1.0 или 1.2
+                let hour = new Date().getHours();
+                let timeMult = (hour >= 23 || hour < 6) ? 1.4 : 1.0; // Ночной тариф 1.4
                 
-                document.getElementById('price-val').innerText = orderData.price + " руб.";
+                let basePrice = 90;
+                let kmPrice = distanceKm * 22;
+                
+                let finalPrice = Math.round((basePrice + kmPrice) * weatherMult * timeMult);
+                orderData.price = finalPrice;
+                
+                let infoText = `${finalPrice} руб.`;
+                if (weatherMult > 1.0 || timeMult > 1.0) infoText += `<br><span style="font-size: 10px; color: #888; font-weight: normal;">Включен повышающий коэффициент</span>`;
+                
+                document.getElementById('price-val').innerHTML = infoText;
                 routeLine = L.geoJSON(route.geometry, { style: {color: '#007aff', weight: 5, opacity: 0.8} }).addTo(map);
                 map.fitBounds(routeLine.getBounds(), {padding: [30, 30]});
                 document.getElementById('order-btn').innerText = "Заказать такси"; document.getElementById('order-btn').disabled = false;
