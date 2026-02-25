@@ -160,10 +160,20 @@
 
     function sendOrder() {
         if(orderData.from && orderData.to && orderData.price > 0) {
+            // Добавляем точные координаты для передачи водителю!
+            orderData.latA = markerA.getLatLng().lat;
+            orderData.lonA = markerA.getLatLng().lng;
+            orderData.latB = markerB.getLatLng().lat;
+            orderData.lonB = markerB.getLatLng().lng;
+            
             tg.sendData(JSON.stringify(orderData));
             tg.close();
+        } else {
+            tg.showAlert("Пожалуйста, укажите обе точки (Откуда и Куда) и дождитесь расчета цены.");
         }
     }
+
 </script>
 </body>
 </html>
+
